@@ -2860,7 +2860,7 @@ mod private {
             let freq_diff = sclk.abs_diff(mclk * mclk_divider);
 
             if freq_diff != 0 {
-                // Carry if decimal >= 1.0 - 1.0 / ((max_fract - 1) * 2)
+                // Carry if decimal >= 1.0 - 2.0 / (max_fract - 1)
                 let max_fract = I2S_LL_MCLK_DIVIDER_MAX as u32;
                 let threshold = mclk - mclk / (max_fract - 1) * 2;
                 if freq_diff >= threshold {
@@ -2911,7 +2911,7 @@ mod private {
                 x = 0;
                 y = 0;
                 z = 0;
-                yn1 = true;
+                yn1 = false;
             } else if self.numerator > self.denominator / 2 {
                 x = self
                     .denominator
