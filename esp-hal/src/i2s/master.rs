@@ -118,7 +118,7 @@
 //!
 //! let i2s = I2s::new_pcm_to_pdm_tx(
 //!     peripherals.I2S0,
-//!     peripherals.__dma_channel__,
+//!     peripherals.DMA_CH0,
 //!     PcmToPdmTxConfig::default()
 //!         .with_sample_rate(Rate::from_hz(48000))
 //!         .with_data_format(DataFormat::Data16Channel16)
@@ -2560,15 +2560,10 @@ mod private {
             }
 
             // PDM TX registers only exist on I2S0.
-            let regs = match &self.0 {
-                #[cfg(soc_has_i2s0)]
-                AnyI2sInner::I2s0(_) => unsafe {
-                    // SAFETY: `I2S0::PTR` is a valid static peripheral pointer.
-                    &*crate::peripherals::I2S0::PTR.cast::<crate::pac::i2s0::RegisterBlock>()
-                },
-                #[cfg(soc_has_i2s1)]
-                AnyI2sInner::I2s1(_) => return Err(ConfigError::PcmToPdmTxNotSupported),
-            };
+            if matches!(self.0, AnyI2sInner::I2s1(_)) {
+                return Err(ConfigError::PcmToPdmTxNotSupported);
+            }
+            let regs = self.regs();
 
             let bclk_div = match config.bclk_div {
                 None => find_optimal_bclk_div(
