@@ -5,7 +5,7 @@
 //!
 //! The following wiring is assumed:
 //! - GPIO3 -> PDM data output (dout)
-//! - GPIO4 -> PDM data output 2 (dout2) (ESP32-S3 two-line DAC mode only)
+//! - GPIO4 -> PDM data output 2 (dout2) (two-line DAC mode only)
 //!
 //! Connect these pins to a low-pass filter (RC filter) followed by a DC
 //! blocking capacitor (HPF) and an amplifier to drive headphones or a
@@ -45,39 +45,62 @@ fn main() -> ! {
     const SQUARE_WAVE_FREQ: usize = 1000;
     const SAMPLES_PER_PERIOD: usize = 48000 / SQUARE_WAVE_FREQ; // 48
 
-    for (i, chunk) in tx_buffer.chunks_exact_mut(4).enumerate() {
-        let sample: i16 = if (i % SAMPLES_PER_PERIOD) < (SAMPLES_PER_PERIOD / 2) {
-            i16::MAX // positive half
-        } else {
-            i16::MIN // negative half
-        };
-        let bytes = sample.to_le_bytes();
-        // Stereo: same sample on both channels (little-endian)
-        chunk[0] = bytes[0]; // left low
-        chunk[1] = bytes[1]; // left high
-        chunk[2] = bytes[0]; // right low
-        chunk[3] = bytes[1]; // right high
-    }
-
-    let i2s = I2s::new_pcm_to_pdm_tx(
-        peripherals.I2S0,
-        peripherals.DMA_CH0,
-        PcmToPdmTxConfig::default()
-            .with_sample_rate(Rate::from_hz(48000))
-            .with_data_format(DataFormat::Data16Channel16)
-            .with_slot_mode(Channels::STEREO)
-            .with_line_mode(PcmToPdmTxLineMode::TwoLineDac),
-    )
-    .unwrap();
-
     cfg_if::cfg_if! {
-        if #[cfg(feature = "esp32s3")] {
+        if #[cfg(any(feature = "esp32c3", feature = "esp32c6", feature = "esp32h2", feature = "esp32s3"))] {
+            // Two-line DAC mode: stereo, same sample on both channels.
+            for (i, chunk) in tx_buffer.chunks_exact_mut(4).enumerate() {
+                let sample: i16 = if (i % SAMPLES_PER_PERIOD) < (SAMPLES_PER_PERIOD / 2) {
+                    i16::MAX // positive half
+                } else {
+                    i16::MIN // negative half
+                };
+                let bytes = sample.to_le_bytes();
+                chunk[0] = bytes[0]; // left low
+                chunk[1] = bytes[1]; // left high
+                chunk[2] = bytes[0]; // right low
+                chunk[3] = bytes[1]; // right high
+            }
+
+            let i2s = I2s::new_pcm_to_pdm_tx(
+                peripherals.I2S0,
+                peripherals.DMA_CH0,
+                PcmToPdmTxConfig::default()
+                    .with_sample_rate(Rate::from_hz(48000))
+                    .with_data_format(DataFormat::Data16Channel16)
+                    .with_slot_mode(Channels::STEREO)
+                    .with_line_mode(PcmToPdmTxLineMode::TwoLineDac),
+            )
+            .unwrap();
+
             let mut i2s_tx = i2s
                 .i2s_tx
                 .with_dout(peripherals.GPIO3)
                 .with_dout2(peripherals.GPIO4)
                 .build(tx_descriptors);
         } else {
+            // One-line DAC mode: mono.
+            for (i, chunk) in tx_buffer.chunks_exact_mut(2).enumerate() {
+                let sample: i16 = if (i % SAMPLES_PER_PERIOD) < (SAMPLES_PER_PERIOD / 2) {
+                    i16::MAX
+                } else {
+                    i16::MIN
+                };
+                let bytes = sample.to_le_bytes();
+                chunk[0] = bytes[0];
+                chunk[1] = bytes[1];
+            }
+
+            let i2s = I2s::new_pcm_to_pdm_tx(
+                peripherals.I2S0,
+                peripherals.DMA_CH0,
+                PcmToPdmTxConfig::default()
+                    .with_sample_rate(Rate::from_hz(48000))
+                    .with_data_format(DataFormat::Data16Channel16)
+                    .with_slot_mode(Channels::MONO)
+                    .with_line_mode(PcmToPdmTxLineMode::OneLineDac),
+            )
+            .unwrap();
+
             let mut i2s_tx = i2s
                 .i2s_tx
                 .with_dout(peripherals.GPIO3)
