@@ -2560,10 +2560,15 @@ mod private {
             }
 
             // PDM TX registers only exist on I2S0.
-            if matches!(self.0, AnyI2sInner::I2s1(_)) {
-                return Err(ConfigError::PcmToPdmTxNotSupported);
-            }
-            let regs = self.regs();
+            let regs = match &self.0 {
+                #[cfg(soc_has_i2s0)]
+                AnyI2sInner::I2s0(_) => unsafe {
+                    // SAFETY: `I2S0::PTR` is a valid static peripheral pointer.
+                    &*crate::peripherals::I2S0::PTR.cast::<crate::pac::i2s0::RegisterBlock>()
+                },
+                #[cfg(soc_has_i2s1)]
+                AnyI2sInner::I2s1(_) => return Err(ConfigError::PcmToPdmTxNotSupported),
+            };
 
             let bclk_div = match config.bclk_div {
                 None => find_optimal_bclk_div(
