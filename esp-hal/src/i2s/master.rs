@@ -2588,7 +2588,7 @@ mod private {
             );
 
             // ---- Configure TX clock ----
-            #[cfg(any(esp32c3, esp32s3))]
+            #[cfg(not(i2s_clock_configured_by_pcr))]
             unsafe {
                 let div = clock_settings.mclk_dividers();
 
@@ -2641,7 +2641,7 @@ mod private {
                 }
             }
 
-            #[cfg(any(esp32c6, esp32h2, esp32c5, esp32c61))]
+            #[cfg(i2s_clock_configured_by_pcr)]
             unsafe {
                 use crate::peripherals::PCR;
                 let div = clock_settings.mclk_dividers();
