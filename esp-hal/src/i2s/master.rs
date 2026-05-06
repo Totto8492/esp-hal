@@ -2852,7 +2852,6 @@ mod private {
             let over_sample_ratio = up_sample_fp / up_sample_fs;
             let bclk = rate * 64 * over_sample_ratio;
             let mclk = bclk * bclk_div;
-            debug_assert!(bclk_div >= 8, "bclk_div must be at least 8");
             let mut mclk_divider = sclk / mclk;
 
             let mut denominator: u32 = 2;
@@ -2895,7 +2894,7 @@ mod private {
 
             I2sClockDividers {
                 mclk_divider,
-                bclk_divider: bclk_div.max(8),
+                bclk_divider,
                 denominator,
                 numerator,
             }
