@@ -509,8 +509,8 @@ impl Default for PcmToPdmTxConfig {
             bclk_div: None,
             pdm_tx_noise_reduction: false,
             data_format: DataFormat::Data16Channel16,
-            slot_mode: Channels::STEREO,
-            line_mode: PcmToPdmTxLineMode::TwoLineDac,
+            slot_mode: Channels::MONO,
+            line_mode: PcmToPdmTxLineMode::OneLineDac,
         }
     }
 }
