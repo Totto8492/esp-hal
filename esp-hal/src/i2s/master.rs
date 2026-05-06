@@ -2894,7 +2894,7 @@ mod private {
 
             I2sClockDividers {
                 mclk_divider,
-                bclk_divider,
+                bclk_divider: bclk_div,
                 denominator,
                 numerator,
             }
