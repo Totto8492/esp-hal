@@ -2638,7 +2638,7 @@ mod private {
                 }
             }
 
-            #[cfg(any(esp32c6, esp32h2))]
+            #[cfg(any(esp32c6, esp32h2, esp32c5, esp32c61))]
             unsafe {
                 use crate::peripherals::PCR;
                 let div = clock_settings.mclk_dividers();
@@ -2657,12 +2657,12 @@ mod private {
                         .bits(clock_settings.mclk_divider as u8)
                 });
 
-                #[cfg(not(esp32h2))]
+                #[cfg(esp32c6)]
                 regs.tx_conf1().modify(|_, w| {
                     w.tx_bck_div_num()
                         .bits((clock_settings.bclk_divider - 1) as u8)
                 });
-                #[cfg(esp32h2)]
+                #[cfg(not(esp32c6))]
                 regs.tx_conf().modify(|_, w| {
                     w.tx_bck_div_num()
                         .bits((clock_settings.bclk_divider - 1) as u8)
