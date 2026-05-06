@@ -139,7 +139,8 @@
 //! ## Implementation State
 //!
 //! - TDM mode is supported.
-//! - PCM-to-PDM TX mode is supported on ESP32-C3, ESP32-C5, ESP32-C6, ESP32-C61, ESP32-H2, and ESP32-S3.
+//! - PCM-to-PDM TX mode is supported on ESP32-C3, ESP32-C5, ESP32-C6, ESP32-C61, ESP32-H2, and
+//!   ESP32-S3.
 
 use enumset::{EnumSet, EnumSetType};
 use private::*;
@@ -2705,7 +2706,15 @@ mod private {
                 });
 
                 // Bind MCLK to TX clock, disable loopback, enable PDM TX.
+                #[cfg(not(i2s_clock_configured_by_pcr))]
                 regs.rx_clkm_conf().modify(|_, w| w.mclk_sel().clear_bit());
+                #[cfg(i2s_clock_configured_by_pcr)]
+                {
+                    use crate::peripherals::PCR;
+                    PCR::regs()
+                        .i2s_rx_clkm_conf()
+                        .modify(|_, w| w.i2s_mclk_sel().clear_bit());
+                }
                 regs.tx_conf().modify(|_, w| {
                     w.sig_loopback().clear_bit();
                     w.tx_pdm_en().set_bit();

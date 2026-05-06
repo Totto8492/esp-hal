@@ -28,6 +28,62 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 const BUFFER_SIZE: usize = 48000;
 
+const SINE_WAVE_FREQ: usize = 1000;
+const SAMPLES_PER_PERIOD: usize = 48000 / SINE_WAVE_FREQ; // 48
+
+#[cfg(any(
+    feature = "esp32c3",
+    feature = "esp32c6",
+    feature = "esp32h2",
+    feature = "esp32s3"
+))]
+const NUM_CHANNELS: usize = 2;
+
+#[cfg(any(feature = "esp32c5", feature = "esp32c61"))]
+const NUM_CHANNELS: usize = 1;
+
+// 48 samples sine wave lookup table for 1kHz at 48kHz sample rate
+const SINE_TABLE: [i16; 48] = [
+    0, 4277, 8481, 12539, 16383, 19947, 23170, 25996, 28377, 30273, 31650, 32487, 32767, 32487,
+    31650, 30273, 28377, 25996, 23170, 19947, 16383, 12539, 8481, 4277, 0, -4277, -8481, -12539,
+    -16383, -19947, -23170, -25996, -28377, -30273, -31650, -32487, -32767, -32487, -31650,
+    -30273, -28377, -25996, -23170, -19947, -16384, -12539, -8481, -4277,
+];
+
+fn fill_buffer(tx_buffer: &mut [u8]) {
+    for (i, chunk) in tx_buffer.chunks_exact_mut(2 * NUM_CHANNELS).enumerate() {
+        let sample = SINE_TABLE[i % SAMPLES_PER_PERIOD];
+        let bytes = sample.to_le_bytes();
+        for ch in 0..NUM_CHANNELS {
+            chunk[ch * 2] = bytes[0];
+            chunk[ch * 2 + 1] = bytes[1];
+        }
+    }
+}
+
+fn pdm_config() -> PcmToPdmTxConfig {
+    let config = PcmToPdmTxConfig::default()
+        .with_sample_rate(Rate::from_hz(48000))
+        .with_data_format(DataFormat::Data16Channel16);
+
+    #[cfg(any(
+        feature = "esp32c3",
+        feature = "esp32c6",
+        feature = "esp32h2",
+        feature = "esp32s3"
+    ))]
+    let config = config
+        .with_slot_mode(Channels::STEREO)
+        .with_line_mode(PcmToPdmTxLineMode::TwoLineDac);
+
+    #[cfg(any(feature = "esp32c5", feature = "esp32c61"))]
+    let config = config
+        .with_slot_mode(Channels::MONO)
+        .with_line_mode(PcmToPdmTxLineMode::OneLineDac);
+
+    config
+}
+
 #[main]
 fn main() -> ! {
     esp_println::logger::init_logger(log::LevelFilter::Info);
@@ -38,75 +94,31 @@ fn main() -> ! {
 
     let (_, _, tx_buffer, tx_descriptors) = dma_buffers!(0, BUFFER_SIZE);
 
-    // Fill the buffer with a 1kHz square wave for easy verification.
+    // Fill the buffer with a 1kHz sine wave for easy verification.
     // At 48kHz sample rate, one period is 48 samples.
     // Connect the output to headphones via a low-pass filter and a DC blocking
     // capacitor to hear the tone.
-    const SQUARE_WAVE_FREQ: usize = 1000;
-    const SAMPLES_PER_PERIOD: usize = 48000 / SQUARE_WAVE_FREQ; // 48
+    fill_buffer(tx_buffer);
 
-    cfg_if::cfg_if! {
-        if #[cfg(any(feature = "esp32c3", feature = "esp32c6", feature = "esp32h2", feature = "esp32s3"))] {
-            // Two-line DAC mode: stereo, same sample on both channels.
-            for (i, chunk) in tx_buffer.chunks_exact_mut(4).enumerate() {
-                let sample: i16 = if (i % SAMPLES_PER_PERIOD) < (SAMPLES_PER_PERIOD / 2) {
-                    i16::MAX // positive half
-                } else {
-                    i16::MIN // negative half
-                };
-                let bytes = sample.to_le_bytes();
-                chunk[0] = bytes[0]; // left low
-                chunk[1] = bytes[1]; // left high
-                chunk[2] = bytes[0]; // right low
-                chunk[3] = bytes[1]; // right high
-            }
+    let i2s = I2s::new_pcm_to_pdm_tx(peripherals.I2S0, peripherals.DMA_CH0, pdm_config()).unwrap();
 
-            let i2s = I2s::new_pcm_to_pdm_tx(
-                peripherals.I2S0,
-                peripherals.DMA_CH0,
-                PcmToPdmTxConfig::default()
-                    .with_sample_rate(Rate::from_hz(48000))
-                    .with_data_format(DataFormat::Data16Channel16)
-                    .with_slot_mode(Channels::STEREO)
-                    .with_line_mode(PcmToPdmTxLineMode::TwoLineDac),
-            )
-            .unwrap();
+    #[cfg(any(
+        feature = "esp32c3",
+        feature = "esp32c6",
+        feature = "esp32h2",
+        feature = "esp32s3"
+    ))]
+    let mut i2s_tx = i2s
+        .i2s_tx
+        .with_dout(peripherals.GPIO3)
+        .with_dout2(peripherals.GPIO4)
+        .build(tx_descriptors);
 
-            let mut i2s_tx = i2s
-                .i2s_tx
-                .with_dout(peripherals.GPIO3)
-                .with_dout2(peripherals.GPIO4)
-                .build(tx_descriptors);
-        } else {
-            // One-line DAC mode: mono.
-            for (i, chunk) in tx_buffer.chunks_exact_mut(2).enumerate() {
-                let sample: i16 = if (i % SAMPLES_PER_PERIOD) < (SAMPLES_PER_PERIOD / 2) {
-                    i16::MAX
-                } else {
-                    i16::MIN
-                };
-                let bytes = sample.to_le_bytes();
-                chunk[0] = bytes[0];
-                chunk[1] = bytes[1];
-            }
-
-            let i2s = I2s::new_pcm_to_pdm_tx(
-                peripherals.I2S0,
-                peripherals.DMA_CH0,
-                PcmToPdmTxConfig::default()
-                    .with_sample_rate(Rate::from_hz(48000))
-                    .with_data_format(DataFormat::Data16Channel16)
-                    .with_slot_mode(Channels::MONO)
-                    .with_line_mode(PcmToPdmTxLineMode::OneLineDac),
-            )
-            .unwrap();
-
-            let mut i2s_tx = i2s
-                .i2s_tx
-                .with_dout(peripherals.GPIO3)
-                .build(tx_descriptors);
-        }
-    }
+    #[cfg(any(feature = "esp32c5", feature = "esp32c61"))]
+    let mut i2s_tx = i2s
+        .i2s_tx
+        .with_dout(peripherals.GPIO3)
+        .build(tx_descriptors);
 
     let _transfer = i2s_tx.write_dma_circular(&tx_buffer).unwrap();
 
