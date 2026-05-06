@@ -139,7 +139,7 @@
 //! ## Implementation State
 //!
 //! - TDM mode is supported.
-//! - PCM-to-PDM TX mode is supported on ESP32-C3, ESP32-S3, ESP32-C6, and ESP32-H2.
+//! - PCM-to-PDM TX mode is supported on ESP32-C3, ESP32-C5, ESP32-C6, ESP32-C61, ESP32-H2, and ESP32-S3.
 
 use enumset::{EnumSet, EnumSetType};
 use private::*;
@@ -458,6 +458,7 @@ impl Channels {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(not(i2s_version = "1"))]
+#[instability::unstable]
 pub enum PcmToPdmTxLineMode {
     /// One-line codec mode (PDM data on single line)
     OneLineCodec,
@@ -471,6 +472,7 @@ pub enum PcmToPdmTxLineMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, procmacros::BuilderLite)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg(not(i2s_version = "1"))]
+#[instability::unstable]
 #[non_exhaustive]
 pub struct PcmToPdmTxConfig {
     /// The target PCM sample rate
