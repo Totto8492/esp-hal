@@ -2546,13 +2546,13 @@ mod private {
             self.bind_peri_interrupt(handler);
         }
 
-        #[cfg(not(i2s_version = "1"))]
         pub(super) fn configure_pcm_to_pdm_tx(
             &self,
             config: &PcmToPdmTxConfig,
         ) -> Result<(), ConfigError> {
             // Validate PDM configuration before touching any registers.
             if config.up_sample_fs == 0
+                || config.up_sample_fs > 480
                 || config.up_sample_fp < config.up_sample_fs
                 || config.bclk_div.map_or(false, |d| d < 8)
             {
