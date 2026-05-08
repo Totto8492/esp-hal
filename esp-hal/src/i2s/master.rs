@@ -136,6 +136,9 @@
 //! # }
 //! ```
 //!
+//! `PcmToPdmTxLineMode::OneLineCodec` outputs standard PDM data for an external codec and also
+//! requires a PDM clock pin configured with `with_ws`.
+//!
 //! ## Implementation State
 //!
 //! - TDM mode is supported.
@@ -461,7 +464,7 @@ impl Channels {
 #[cfg(not(i2s_version = "1"))]
 #[instability::unstable]
 pub enum PcmToPdmTxLineMode {
-    /// One-line codec mode (PDM data on single line)
+    /// One-line codec mode (PDM data on single line, plus PDM clock via WS signal)
     OneLineCodec,
     /// One-line DAC mode (PDM data for DAC on single line)
     OneLineDac,
@@ -483,7 +486,7 @@ pub struct PcmToPdmTxConfig {
     /// Up-sampling factor fs (Fpdm = 64 * Fpcm * fp / fs)
     up_sample_fs: u32,
     /// BCLK divider. `None` enables automatic search for the optimal divider.
-    /// `Some(x)` uses the given value directly (must be >= 8).
+    /// `Some(x)` uses the given value directly (must be 8..=64).
     bclk_div: Option<u32>,
     /// Enable the PDM TX noise-reduction workaround.
     /// When `true`, the fractional clock division coefficients are overwritten
@@ -804,7 +807,7 @@ pub enum ConfigError {
     /// Requested WS signal width is out of range
     #[cfg(not(i2s_version = "1"))]
     WsWidthOutOfRange,
-    /// Invalid PCM-to-PDM TX configuration (e.g. up_sample_fs is zero, or bclk_div is too small)
+    /// Invalid PCM-to-PDM TX configuration (e.g. unsupported clock or sample width)
     #[cfg(not(i2s_version = "1"))]
     InvalidPcmToPdmConfig,
     /// PCM-to-PDM TX is not supported on this I2S peripheral
@@ -2553,8 +2556,10 @@ mod private {
             // Validate PDM configuration before touching any registers.
             if config.up_sample_fs == 0
                 || config.up_sample_fs > 480
+                || config.up_sample_fp > 1023
                 || config.up_sample_fp < config.up_sample_fs
-                || config.bclk_div.map_or(false, |d| d < 8)
+                || config.bclk_div.map_or(false, |d| !(8..=64).contains(&d))
+                || config.data_format.data_bits() != 16
             {
                 return Err(ConfigError::InvalidPcmToPdmConfig);
             }
@@ -2580,12 +2585,37 @@ mod private {
                 Some(div) => div,
             };
 
+            let over_sample_ratio = config.up_sample_fp / config.up_sample_fs;
+            if over_sample_ratio == 0 || over_sample_ratio > 15 {
+                return Err(ConfigError::InvalidPcmToPdmConfig);
+            }
+
+            let bclk = config
+                .sample_rate
+                .as_hz()
+                .checked_mul(64)
+                .and_then(|bclk| bclk.checked_mul(over_sample_ratio))
+                .ok_or(ConfigError::InvalidPcmToPdmConfig)?;
+            let mclk = bclk
+                .checked_mul(bclk_div)
+                .ok_or(ConfigError::InvalidPcmToPdmConfig)?;
+            let sclk = crate::soc::i2s_sclk_frequency();
+
+            // Match ESP-IDF's PDM TX clock validity checks before writing registers.
+            if (sclk as u64) * 100 <= (mclk as u64) * 199 {
+                return Err(ConfigError::InvalidPcmToPdmConfig);
+            }
+
             let clock_settings = I2sClockDividers::new_pcm_to_pdm_tx(
                 config.sample_rate,
                 config.up_sample_fp,
                 config.up_sample_fs,
                 bclk_div,
             );
+
+            if clock_settings.mclk_divider == 0 || clock_settings.mclk_divider >= 256 {
+                return Err(ConfigError::InvalidPcmToPdmConfig);
+            }
 
             // ---- Configure TX clock ----
             #[cfg(not(i2s_clock_configured_by_pcr))]
@@ -2673,7 +2703,6 @@ mod private {
             }
 
             // ---- Configure PDM filter ----
-            let over_sample_ratio = config.up_sample_fp / config.up_sample_fs;
             unsafe {
                 regs.tx_pcm2pdm_conf1().modify(|_, w| {
                     w.tx_pdm_fp().bits(config.up_sample_fp as u16);
@@ -2685,7 +2714,8 @@ mod private {
 
             // ---- Configure line mode and slot width ----
             let dac_mode_en = config.line_mode != PcmToPdmTxLineMode::OneLineCodec;
-            let dac_2out_en = config.line_mode == PcmToPdmTxLineMode::TwoLineDac;
+            let dac_2out_en = config.line_mode != PcmToPdmTxLineMode::OneLineDac;
+            let is_mono = config.slot_mode != Channels::STEREO;
             let slot_bit_width = if config.slot_mode == Channels::STEREO {
                 32
             } else {
@@ -2716,10 +2746,18 @@ mod private {
                         .modify(|_, w| w.i2s_mclk_sel().clear_bit());
                 }
                 regs.tx_conf().modify(|_, w| {
+                    w.tx_mono().bit(is_mono);
+                    w.tx_mono_fst_vld().set_bit();
                     w.sig_loopback().clear_bit();
                     w.tx_pdm_en().set_bit();
-                    w.tx_tdm_en().clear_bit()
+                    w.tx_tdm_en().clear_bit();
+                    w.tx_ws_idle_pol().clear_bit();
+                    #[cfg(i2s_version = "3")]
+                    w.tx_msb_shift().clear_bit();
+                    w.tx_chan_mod().bits(if is_mono { 3 } else { 0 })
                 });
+                #[cfg(i2s_version = "2")]
+                regs.tx_conf1().modify(|_, w| w.tx_msb_shift().clear_bit());
                 regs.tx_pcm2pdm_conf()
                     .modify(|_, w| w.pcm2pdm_conv_en().set_bit());
 
