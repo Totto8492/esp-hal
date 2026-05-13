@@ -294,10 +294,7 @@ pub mod gpio;
 #[cfg(i2c_master_driver_supported)]
 pub mod i2c;
 pub mod peripherals;
-#[cfg(all(
-    feature = "unstable",
-    any(ecc_driver_supported, hmac_driver_supported, sha_driver_supported)
-))]
+#[cfg(all(feature = "unstable", any(hmac_driver_supported, sha_driver_supported)))]
 mod reg_access;
 #[cfg(rng_driver_supported)]
 pub mod rng;
@@ -724,18 +721,7 @@ pub fn init(config: Config) -> Peripherals {
     crate::soc::pre_init();
 
     #[cfg(soc_cpu_has_branch_predictor)]
-    {
-        // Enable branch predictor
-        // Note that the branch predictor will start cache requests and needs to be disabled when
-        // the cache is disabled.
-        // MHCR: CSR 0x7c1
-        const MHCR_RS: u32 = 1 << 4; // R/W, address return stack set bit
-        const MHCR_BFE: u32 = 1 << 5; // R/W, allow predictive jump set bit
-        const MHCR_BTB: u32 = 1 << 12; // R/W, branch target prediction enable bit
-        unsafe {
-            core::arch::asm!("csrrs x0, 0x7c1, {0}", in(reg) MHCR_RS | MHCR_BFE | MHCR_BTB);
-        }
-    }
+    crate::soc::enable_branch_predictor();
 
     crate::soc::ensure_stack_pointer_in_range();
     #[cfg(stack_guard_monitoring)]

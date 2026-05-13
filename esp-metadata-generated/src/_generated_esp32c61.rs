@@ -265,6 +265,9 @@ macro_rules! property {
     ("rng.trng_supported") => {
         false
     };
+    ("rng.is_lp_sys") => {
+        false
+    };
     ("sha.dma") => {
         true
     };
@@ -275,7 +278,7 @@ macro_rules! property {
         false
     };
     ("soc.cpu_has_branch_predictor") => {
-        false
+        true
     };
     ("soc.cpu_has_csr_pc") => {
         false

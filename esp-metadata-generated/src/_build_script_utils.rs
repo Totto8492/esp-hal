@@ -3295,6 +3295,7 @@ impl Chip {
                     "psram_extmem_origin=\"1107296256\"",
                     "rng_apb_cycle_wait_num=\"16\"",
                     "sha_dma",
+                    "soc_cpu_has_branch_predictor",
                     "soc_rc_fast_clk_default=\"17500000\"",
                     "soc_rc_fast_clk_default_is_set",
                     "soc_has_clock_node_xtal_clk",
@@ -3497,6 +3498,7 @@ impl Chip {
                     "cargo:rustc-cfg=psram_extmem_origin=\"1107296256\"",
                     "cargo:rustc-cfg=rng_apb_cycle_wait_num=\"16\"",
                     "cargo:rustc-cfg=sha_dma",
+                    "cargo:rustc-cfg=soc_cpu_has_branch_predictor",
                     "cargo:rustc-cfg=soc_rc_fast_clk_default=\"17500000\"",
                     "cargo:rustc-cfg=soc_rc_fast_clk_default_is_set",
                     "cargo:rustc-cfg=soc_has_clock_node_xtal_clk",
@@ -4295,12 +4297,13 @@ impl Chip {
                 symbols: &[
                     "esp32p4",
                     "riscv",
-                    "single_core",
+                    "multi_core",
                     "soc_has_efuse",
                     "soc_has_gpio",
                     "soc_has_system",
                     "soc_has_hp_sys",
                     "soc_has_hp_sys_clkrst",
+                    "soc_has_rng",
                     "soc_has_interrupt_core0",
                     "soc_has_interrupt_core1",
                     "soc_has_lp_i2c_ana_mst",
@@ -4345,17 +4348,19 @@ impl Chip {
                     "soc_has_rsa",
                     "soc_has_ecc",
                     "soc_has_sw_interrupt",
-                    "very_large_intr_status",
+                    "soc_has_cpu_ctrl",
                     "spi_octal",
                     "rom_crc_le",
                     "rom_crc_be",
                     "rom_md5_bsd",
                     "pm_support_ext1_wakeup",
                     "pm_support_touch_sensor_wakeup",
+                    "ecc_driver_supported",
                     "gpio_driver_supported",
                     "i2c_master_driver_supported",
                     "interrupts_driver_supported",
                     "psram_driver_supported",
+                    "rng_driver_supported",
                     "soc_driver_supported",
                     "spi_master_driver_supported",
                     "systimer_driver_supported",
@@ -4382,6 +4387,8 @@ impl Chip {
                     "dma_gdma_version=\"2\"",
                     "dma_gdma_version_is_set",
                     "ecc_separate_jacobian_point_memory",
+                    "ecc_has_memory_clock_gate",
+                    "ecc_supports_enhanced_security",
                     "ecc_has_modular_arithmetic",
                     "ecc_has_point_addition",
                     "ecc_has_curve_p192",
@@ -4401,17 +4408,19 @@ impl Chip {
                     "i2c_master_max_bus_timeout=\"31\"",
                     "i2c_master_ll_intr_mask=\"262143\"",
                     "i2c_master_fifo_size=\"32\"",
-                    "interrupts_status_registers=\"3\"",
+                    "interrupts_status_registers=\"5\"",
                     "interrupt_controller=\"clic\"",
                     "lp_i2c_master_fifo_size=\"32\"",
                     "lp_uart_ram_size=\"32\"",
                     "psram_extmem_origin=\"1207959552\"",
                     "rng_apb_cycle_wait_num=\"16\"",
+                    "rng_is_lp_sys",
                     "rsa_version=\"3\"",
                     "rsa_size_increment=\"32\"",
                     "rsa_memory_size_bytes=\"384\"",
                     "sha_dma",
-                    "soc_cpu_has_csr_pc",
+                    "soc_cpu_has_branch_predictor",
+                    "soc_multi_core_enabled",
                     "soc_rc_fast_clk_default=\"20000000\"",
                     "soc_rc_fast_clk_default_is_set",
                     "soc_has_clock_node_xtal_clk",
@@ -4451,12 +4460,13 @@ impl Chip {
                 cfgs: &[
                     "cargo:rustc-cfg=esp32p4",
                     "cargo:rustc-cfg=riscv",
-                    "cargo:rustc-cfg=single_core",
+                    "cargo:rustc-cfg=multi_core",
                     "cargo:rustc-cfg=soc_has_efuse",
                     "cargo:rustc-cfg=soc_has_gpio",
                     "cargo:rustc-cfg=soc_has_system",
                     "cargo:rustc-cfg=soc_has_hp_sys",
                     "cargo:rustc-cfg=soc_has_hp_sys_clkrst",
+                    "cargo:rustc-cfg=soc_has_rng",
                     "cargo:rustc-cfg=soc_has_interrupt_core0",
                     "cargo:rustc-cfg=soc_has_interrupt_core1",
                     "cargo:rustc-cfg=soc_has_lp_i2c_ana_mst",
@@ -4501,17 +4511,19 @@ impl Chip {
                     "cargo:rustc-cfg=soc_has_rsa",
                     "cargo:rustc-cfg=soc_has_ecc",
                     "cargo:rustc-cfg=soc_has_sw_interrupt",
-                    "cargo:rustc-cfg=very_large_intr_status",
+                    "cargo:rustc-cfg=soc_has_cpu_ctrl",
                     "cargo:rustc-cfg=spi_octal",
                     "cargo:rustc-cfg=rom_crc_le",
                     "cargo:rustc-cfg=rom_crc_be",
                     "cargo:rustc-cfg=rom_md5_bsd",
                     "cargo:rustc-cfg=pm_support_ext1_wakeup",
                     "cargo:rustc-cfg=pm_support_touch_sensor_wakeup",
+                    "cargo:rustc-cfg=ecc_driver_supported",
                     "cargo:rustc-cfg=gpio_driver_supported",
                     "cargo:rustc-cfg=i2c_master_driver_supported",
                     "cargo:rustc-cfg=interrupts_driver_supported",
                     "cargo:rustc-cfg=psram_driver_supported",
+                    "cargo:rustc-cfg=rng_driver_supported",
                     "cargo:rustc-cfg=soc_driver_supported",
                     "cargo:rustc-cfg=spi_master_driver_supported",
                     "cargo:rustc-cfg=systimer_driver_supported",
@@ -4538,6 +4550,8 @@ impl Chip {
                     "cargo:rustc-cfg=dma_gdma_version=\"2\"",
                     "cargo:rustc-cfg=dma_gdma_version_is_set",
                     "cargo:rustc-cfg=ecc_separate_jacobian_point_memory",
+                    "cargo:rustc-cfg=ecc_has_memory_clock_gate",
+                    "cargo:rustc-cfg=ecc_supports_enhanced_security",
                     "cargo:rustc-cfg=ecc_has_modular_arithmetic",
                     "cargo:rustc-cfg=ecc_has_point_addition",
                     "cargo:rustc-cfg=ecc_has_curve_p192",
@@ -4557,17 +4571,19 @@ impl Chip {
                     "cargo:rustc-cfg=i2c_master_max_bus_timeout=\"31\"",
                     "cargo:rustc-cfg=i2c_master_ll_intr_mask=\"262143\"",
                     "cargo:rustc-cfg=i2c_master_fifo_size=\"32\"",
-                    "cargo:rustc-cfg=interrupts_status_registers=\"3\"",
+                    "cargo:rustc-cfg=interrupts_status_registers=\"5\"",
                     "cargo:rustc-cfg=interrupt_controller=\"clic\"",
                     "cargo:rustc-cfg=lp_i2c_master_fifo_size=\"32\"",
                     "cargo:rustc-cfg=lp_uart_ram_size=\"32\"",
                     "cargo:rustc-cfg=psram_extmem_origin=\"1207959552\"",
                     "cargo:rustc-cfg=rng_apb_cycle_wait_num=\"16\"",
+                    "cargo:rustc-cfg=rng_is_lp_sys",
                     "cargo:rustc-cfg=rsa_version=\"3\"",
                     "cargo:rustc-cfg=rsa_size_increment=\"32\"",
                     "cargo:rustc-cfg=rsa_memory_size_bytes=\"384\"",
                     "cargo:rustc-cfg=sha_dma",
-                    "cargo:rustc-cfg=soc_cpu_has_csr_pc",
+                    "cargo:rustc-cfg=soc_cpu_has_branch_predictor",
+                    "cargo:rustc-cfg=soc_multi_core_enabled",
                     "cargo:rustc-cfg=soc_rc_fast_clk_default=\"20000000\"",
                     "cargo:rustc-cfg=soc_rc_fast_clk_default_is_set",
                     "cargo:rustc-cfg=soc_has_clock_node_xtal_clk",
@@ -6667,10 +6683,10 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(soc_has_uart4)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_twai2)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_adc)");
-    println!("cargo:rustc-check-cfg=cfg(very_large_intr_status)");
     println!("cargo:rustc-check-cfg=cfg(spi_octal)");
     println!("cargo:rustc-check-cfg=cfg(uart_uart3)");
     println!("cargo:rustc-check-cfg=cfg(uart_uart4)");
+    println!("cargo:rustc-check-cfg=cfg(rng_is_lp_sys)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_cpll_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_spll_clk)");
     println!("cargo:rustc-check-cfg=cfg(soc_has_clock_node_mpll_clk)");
@@ -6739,7 +6755,9 @@ pub fn emit_check_cfg_directives() {
     println!("cargo:rustc-check-cfg=cfg(i2s_default_clock_source, values(\"2\",\"1\"))");
     println!("cargo:rustc-check-cfg=cfg(i2s_mclk_divider_bit_width, values(\"6\",\"9\"))");
     println!("cargo:rustc-check-cfg=cfg(i2s_max_ws_width, values(\"128\",\"512\"))");
-    println!("cargo:rustc-check-cfg=cfg(interrupts_status_registers, values(\"3\",\"2\",\"4\"))");
+    println!(
+        "cargo:rustc-check-cfg=cfg(interrupts_status_registers, values(\"3\",\"2\",\"5\",\"4\"))"
+    );
     println!(
         "cargo:rustc-check-cfg=cfg(interrupt_controller, \
          values(\"xtensa\",\"riscv_basic\",\"clic\",\"plic\"))"
