@@ -382,7 +382,10 @@ driver_configs![
     EthernetProperties {
         driver: ethernet,
         name: "Ethernet",
-        properties: {}
+        properties: {
+            #[serde(default)]
+            mii_via_gpio_matrix: bool,
+        }
     },
     EtmProperties {
         driver: etm,
@@ -579,7 +582,6 @@ driver_configs![
             has_dma: bool,
             #[serde(default)]
             has_per_channel_clock: bool,
-            clock_sources: RmtClockSourcesConfig,
         }
     },
     RngProperties {
@@ -663,6 +665,13 @@ driver_configs![
         driver: spi_master,
         name: "SPI master",
         properties: {
+            /// Register-layout generation derived from the chip SVD.
+            version: u32,
+            /// FIFO size in bytes.
+            fifo_size: u32,
+            /// Bit-order fields are single-bit booleans instead of multi-bit fields.
+            #[serde(default)]
+            bit_order_is_bool: bool,
             #[serde(default)]
             supports_dma: bool,
             #[serde(default)]
@@ -674,6 +683,9 @@ driver_configs![
             /// The PCR has a clock pre-divider before the SPI peripheral.
             #[serde(default)]
             has_clk_pre_div: bool,
+            /// SPI DMA can read flash memory directly.
+            #[serde(default)]
+            dma_can_access_flash: bool,
         }
     },
     SpiSlaveProperties<SpiSlaveInstanceConfig> {
@@ -754,7 +766,9 @@ driver_configs![
     UsbOtgProperties {
         driver: usb_otg,
         name: "USB OTG FS",
-        properties: {}
+        properties: {
+            fifo_depth_words: u32,
+        }
     },
     UsbSerialJtagProperties {
         driver: usb_serial_jtag,

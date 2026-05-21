@@ -400,6 +400,21 @@ macro_rules! property {
     ("clock_tree.uart.baud_rate_generator.integral") => {
         (0, 4095)
     };
+    ("spi_master.version") => {
+        3
+    };
+    ("spi_master.version", str) => {
+        stringify!(3)
+    };
+    ("spi_master.fifo_size") => {
+        64
+    };
+    ("spi_master.fifo_size", str) => {
+        stringify!(64)
+    };
+    ("spi_master.bit_order_is_bool") => {
+        false
+    };
     ("spi_master.supports_dma") => {
         true
     };
@@ -413,6 +428,9 @@ macro_rules! property {
         true
     };
     ("spi_master.has_clk_pre_div") => {
+        true
+    };
+    ("spi_master.dma_can_access_flash") => {
         true
     };
     ("spi_slave.supports_dma") => {
@@ -769,19 +787,6 @@ macro_rules! for_each_rmt_channel {
         _for_each_inner_rmt_channel!((all(0), (1), (2), (3)));
         _for_each_inner_rmt_channel!((tx(0, 0), (1, 1)));
         _for_each_inner_rmt_channel!((rx(2, 0), (3, 1)));
-    };
-}
-#[macro_export]
-#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
-macro_rules! for_each_rmt_clock_source {
-    ($($pattern:tt => $code:tt;)*) => {
-        macro_rules! _for_each_inner_rmt_clock_source { $(($pattern) => $code;)* ($other
-        : tt) => {} } _for_each_inner_rmt_clock_source!((Xtal, 0));
-        _for_each_inner_rmt_clock_source!((RcFast, 1));
-        _for_each_inner_rmt_clock_source!((Pll80MHz, 2));
-        _for_each_inner_rmt_clock_source!((Pll80MHz));
-        _for_each_inner_rmt_clock_source!((all(Xtal, 0), (RcFast, 1), (Pll80MHz, 2)));
-        _for_each_inner_rmt_clock_source!((default(Pll80MHz)));
     };
 }
 #[macro_export]
@@ -4497,8 +4502,8 @@ macro_rules! for_each_analog_function {
         _for_each_inner_analog_function!((ADC1_CH5, GPIO6));
         _for_each_inner_analog_function!((ZCD0, GPIO8));
         _for_each_inner_analog_function!((ZCD1, GPIO9));
-        _for_each_inner_analog_function!((USB_DM, GPIO13));
-        _for_each_inner_analog_function!((USB_DP, GPIO14));
+        _for_each_inner_analog_function!((USJ_DM, GPIO13));
+        _for_each_inner_analog_function!((USJ_DP, GPIO14));
         _for_each_inner_analog_function!(((ADC1_CH0, ADCn_CHm, 1, 0), GPIO1));
         _for_each_inner_analog_function!(((ADC1_CH1, ADCn_CHm, 1, 1), GPIO2));
         _for_each_inner_analog_function!(((ADC1_CH2, ADCn_CHm, 1, 2), GPIO3));
@@ -4509,8 +4514,8 @@ macro_rules! for_each_analog_function {
         _for_each_inner_analog_function!(((ZCD1, ZCDn, 1), GPIO9));
         _for_each_inner_analog_function!((all(XTAL_32K_P, GPIO0), (XTAL_32K_N, GPIO1),
         (ADC1_CH0, GPIO1), (ADC1_CH1, GPIO2), (ADC1_CH2, GPIO3), (ADC1_CH3, GPIO4),
-        (ADC1_CH4, GPIO5), (ADC1_CH5, GPIO6), (ZCD0, GPIO8), (ZCD1, GPIO9), (USB_DM,
-        GPIO13), (USB_DP, GPIO14)));
+        (ADC1_CH4, GPIO5), (ADC1_CH5, GPIO6), (ZCD0, GPIO8), (ZCD1, GPIO9), (USJ_DM,
+        GPIO13), (USJ_DP, GPIO14)));
         _for_each_inner_analog_function!((all_expanded((ADC1_CH0, ADCn_CHm, 1, 0),
         GPIO1), ((ADC1_CH1, ADCn_CHm, 1, 1), GPIO2), ((ADC1_CH2, ADCn_CHm, 1, 2), GPIO3),
         ((ADC1_CH3, ADCn_CHm, 1, 3), GPIO4), ((ADC1_CH4, ADCn_CHm, 1, 4), GPIO5),
@@ -4580,6 +4585,76 @@ macro_rules! for_each_lp_function {
         ((LP_GPIO1, LP_GPIOn, 1), GPIO1), ((LP_GPIO2, LP_GPIOn, 2), GPIO2), ((LP_GPIO3,
         LP_GPIOn, 3), GPIO3), ((LP_GPIO4, LP_GPIOn, 4), GPIO4), ((LP_GPIO5, LP_GPIOn, 5),
         GPIO5), ((LP_GPIO6, LP_GPIOn, 6), GPIO6)));
+    };
+}
+/// This macro can be used to generate code for each IOMUX digital function of each GPIO.
+///
+/// IOMUX functions are the alternate digital functions configured via the IO_MUX registers.
+/// Use this to implement signal-specific traits for peripherals whose pins must bypass the
+/// GPIO matrix (e.g., EMAC, USB).
+///
+/// For an explanation on the general syntax, as well as usage of individual/repeated
+/// matchers, refer to [the crate-level documentation][crate#for_each-macros].
+///
+/// This macro has two options for its "Individual matcher" case:
+///
+/// - `all`: `($signal:ident, $gpio:ident, $af:ident)` - simple case where you only need
+///   identifiers, and maybe the alternate function.
+/// - `all_expanded`: `(($signal:ident, $group:ident $(, $number:literal)+), $gpio:ident,
+///   $af:ident)` - expanded signal case, where you need the number(s) of a signal, or the general
+///   group to which the signal belongs.
+///
+/// Macro fragments:
+///
+/// - `$signal`: the name of the signal.
+/// - `$group`: the name of the signal, with numbers replaced by placeholders.
+/// - `$number`: the numbers extracted from `$signal`.
+/// - `$gpio`: the name of the GPIO.
+/// - `$af`: the alternate function number, as an identifier (e.g. `_5`).
+///
+/// Example data:
+/// - `(EMAC_RXD0, GPIO25, _5)`
+/// - `((EMAC_RXDn, EMAC_RXDn, 0), GPIO25, _5)`
+///
+/// The expanded syntax is only available when the signal has at least one numbered component.
+#[macro_export]
+#[cfg_attr(docsrs, doc(cfg(feature = "_device-selected")))]
+macro_rules! for_each_iomux_function {
+    ($($pattern:tt => $code:tt;)*) => {
+        macro_rules! _for_each_inner_iomux_function { $(($pattern) => $code;)* ($other :
+        tt) => {} } _for_each_inner_iomux_function!((MTMS, GPIO2, _0));
+        _for_each_inner_iomux_function!((FSPIQ, GPIO2, _2));
+        _for_each_inner_iomux_function!((MTDI, GPIO3, _0));
+        _for_each_inner_iomux_function!((MTCK, GPIO4, _0));
+        _for_each_inner_iomux_function!((FSPIHD, GPIO4, _2));
+        _for_each_inner_iomux_function!((MTDO, GPIO5, _0));
+        _for_each_inner_iomux_function!((FSPIWP, GPIO5, _2));
+        _for_each_inner_iomux_function!((FSPICLK, GPIO6, _2));
+        _for_each_inner_iomux_function!((SDIO_DATA1, GPIO7, _0));
+        _for_each_inner_iomux_function!((FSPID, GPIO7, _2));
+        _for_each_inner_iomux_function!((SDIO_DATA0, GPIO8, _0));
+        _for_each_inner_iomux_function!((SDIO_CLK, GPIO9, _0));
+        _for_each_inner_iomux_function!((SDIO_CMD, GPIO10, _0));
+        _for_each_inner_iomux_function!((FSPICS0, GPIO10, _2));
+        _for_each_inner_iomux_function!((U0TXD, GPIO11, _0));
+        _for_each_inner_iomux_function!((U0RXD, GPIO12, _0));
+        _for_each_inner_iomux_function!((SDIO_DATA3, GPIO13, _0));
+        _for_each_inner_iomux_function!((SDIO_DATA2, GPIO14, _0));
+        _for_each_inner_iomux_function!(((SDIO_DATA1, SDIO_DATAn, 1), GPIO7, _0));
+        _for_each_inner_iomux_function!(((SDIO_DATA0, SDIO_DATAn, 0), GPIO8, _0));
+        _for_each_inner_iomux_function!(((FSPICS0, FSPICSn, 0), GPIO10, _2));
+        _for_each_inner_iomux_function!(((SDIO_DATA3, SDIO_DATAn, 3), GPIO13, _0));
+        _for_each_inner_iomux_function!(((SDIO_DATA2, SDIO_DATAn, 2), GPIO14, _0));
+        _for_each_inner_iomux_function!((all(MTMS, GPIO2, _0), (FSPIQ, GPIO2, _2), (MTDI,
+        GPIO3, _0), (MTCK, GPIO4, _0), (FSPIHD, GPIO4, _2), (MTDO, GPIO5, _0), (FSPIWP,
+        GPIO5, _2), (FSPICLK, GPIO6, _2), (SDIO_DATA1, GPIO7, _0), (FSPID, GPIO7, _2),
+        (SDIO_DATA0, GPIO8, _0), (SDIO_CLK, GPIO9, _0), (SDIO_CMD, GPIO10, _0), (FSPICS0,
+        GPIO10, _2), (U0TXD, GPIO11, _0), (U0RXD, GPIO12, _0), (SDIO_DATA3, GPIO13, _0),
+        (SDIO_DATA2, GPIO14, _0)));
+        _for_each_inner_iomux_function!((all_expanded((SDIO_DATA1, SDIO_DATAn, 1), GPIO7,
+        _0), ((SDIO_DATA0, SDIO_DATAn, 0), GPIO8, _0), ((FSPICS0, FSPICSn, 0), GPIO10,
+        _2), ((SDIO_DATA3, SDIO_DATAn, 3), GPIO13, _0), ((SDIO_DATA2, SDIO_DATAn, 2),
+        GPIO14, _0)));
     };
 }
 /// Defines the `InputSignal` and `OutputSignal` enums.
