@@ -108,9 +108,42 @@
 //! # }
 //! ```
 //!
+//! ### PCM-to-PDM TX (ESP32-S3)
+//!
+//! ```rust, no_run
+//! # {before_snippet}
+//! # use esp_hal::i2s::master::{I2s, DataFormat, PcmToPdmTxConfig, PcmToPdmTxLineMode};
+//! # use esp_hal::dma_buffers;
+//! let (_, _, tx_buffer, tx_descriptors) = dma_buffers!(0, 4 * 4092);
+//!
+//! let i2s = I2s::new_pcm_to_pdm_tx(
+//!     peripherals.I2S0,
+//!     peripherals.DMA_CH0,
+//!     PcmToPdmTxConfig::default()
+//!         .with_sample_rate(Rate::from_hz(48000))
+//!         .with_data_format(DataFormat::Data16Channel16)
+//!         .with_line_mode(PcmToPdmTxLineMode::TwoLineDac),
+//! )?;
+//!
+//! let mut i2s_tx = i2s
+//!     .i2s_tx
+//!     .with_dout(peripherals.GPIO3)
+//!     .with_dout2(peripherals.GPIO4)
+//!     .build(tx_descriptors);
+//!
+//! let mut transfer = i2s_tx.write_dma_circular(&tx_buffer)?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! `PcmToPdmTxLineMode::OneLineCodec` outputs standard PDM data for an external codec and also
+//! requires a PDM clock pin configured with `with_ws`.
+//!
 //! ## Implementation State
 //!
-//! - Only TDM mode is supported.
+//! - TDM mode is supported.
+//! - PCM-to-PDM TX mode is supported on ESP32-C3, ESP32-C5, ESP32-C6, ESP32-C61, ESP32-H2, and
+//!   ESP32-S3.
 
 use enumset::{EnumSet, EnumSetType};
 use private::*;
@@ -425,6 +458,67 @@ impl Channels {
     }
 }
 
+/// PDM TX line mode
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(not(i2s_version = "1"))]
+#[instability::unstable]
+pub enum PcmToPdmTxLineMode {
+    /// One-line codec mode (PDM data on single line, plus PDM clock via WS signal)
+    OneLineCodec,
+    /// One-line DAC mode (PDM data for DAC on single line)
+    OneLineDac,
+    /// Two-line DAC mode (stereo PDM data on two lines)
+    TwoLineDac,
+}
+
+/// PCM-to-PDM TX unit configuration
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, procmacros::BuilderLite)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(not(i2s_version = "1"))]
+#[instability::unstable]
+#[non_exhaustive]
+pub struct PcmToPdmTxConfig {
+    /// The target PCM sample rate
+    sample_rate: Rate,
+    /// Up-sampling factor fp (Fpdm = 64 * Fpcm * fp / fs)
+    up_sample_fp: u32,
+    /// Up-sampling factor fs (Fpdm = 64 * Fpcm * fp / fs)
+    up_sample_fs: u32,
+    /// BCLK divider. `None` enables automatic search for the optimal divider.
+    /// `Some(x)` uses the given value directly (must be 8..=64).
+    bclk_div: Option<u32>,
+    /// Enable the PDM TX noise-reduction workaround.
+    /// When `true`, the fractional clock division coefficients are overwritten
+    /// with a fixed value (x=1, y=1, z=0, yn1=0) to reduce background noise,
+    /// at the cost of a small clock frequency error.
+    /// When `false`, the exact calculated coefficients are used, preserving
+    /// accurate playback speed but potentially increasing noise.
+    pdm_tx_noise_reduction: bool,
+    /// Input PCM data format
+    data_format: DataFormat,
+    /// Slot mode (stereo/mono)
+    slot_mode: Channels,
+    /// Line mode
+    line_mode: PcmToPdmTxLineMode,
+}
+
+#[cfg(not(i2s_version = "1"))]
+impl Default for PcmToPdmTxConfig {
+    fn default() -> Self {
+        Self {
+            sample_rate: Rate::from_hz(48000),
+            up_sample_fp: 960,
+            up_sample_fs: 480,
+            bclk_div: None,
+            pdm_tx_noise_reduction: false,
+            data_format: DataFormat::Data16Channel16,
+            slot_mode: Channels::MONO,
+            line_mode: PcmToPdmTxLineMode::OneLineDac,
+        }
+    }
+}
+
 /// I2S peripheral configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, procmacros::BuilderLite)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -713,6 +807,12 @@ pub enum ConfigError {
     /// Requested WS signal width is out of range
     #[cfg(not(i2s_version = "1"))]
     WsWidthOutOfRange,
+    /// Invalid PCM-to-PDM TX configuration (e.g. unsupported clock or sample width)
+    #[cfg(not(i2s_version = "1"))]
+    InvalidPcmToPdmConfig,
+    /// PCM-to-PDM TX is not supported on this I2S peripheral
+    #[cfg(not(i2s_version = "1"))]
+    PcmToPdmTxNotSupported,
 }
 
 impl core::error::Error for ConfigError {}
@@ -734,6 +834,14 @@ impl core::fmt::Display for ConfigError {
                     f,
                     "The requested WS signal width is out of supported range (1..=128)"
                 )
+            }
+            #[cfg(not(i2s_version = "1"))]
+            ConfigError::InvalidPcmToPdmConfig => {
+                write!(f, "Invalid PCM-to-PDM TX configuration")
+            }
+            #[cfg(not(i2s_version = "1"))]
+            ConfigError::PcmToPdmTxNotSupported => {
+                write!(f, "PCM-to-PDM TX is not supported on this I2S peripheral")
             }
         }
     }
@@ -838,6 +946,45 @@ impl<'d> I2s<'d, Blocking> {
 
         i2s.set_master();
         i2s.configure(&config)?;
+        i2s.update();
+
+        Ok(Self {
+            i2s_rx: RxCreator {
+                i2s: unsafe { i2s.clone_unchecked() },
+                rx_channel: channel.rx,
+                guard: rx_guard,
+                #[cfg(i2s_version = "1")]
+                data_format: config.data_format,
+            },
+            i2s_tx: TxCreator {
+                i2s,
+                tx_channel: channel.tx,
+                guard: tx_guard,
+                #[cfg(i2s_version = "1")]
+                data_format: config.data_format,
+            },
+        })
+    }
+
+    /// Construct a new I2s instance configured for PCM-to-PDM TX mode.
+    #[cfg(not(i2s_version = "1"))]
+    #[instability::unstable]
+    pub fn new_pcm_to_pdm_tx(
+        i2s: impl Instance + 'd,
+        channel: impl DmaChannelFor<AnyI2s<'d>>,
+        config: PcmToPdmTxConfig,
+    ) -> Result<Self, ConfigError> {
+        let channel = Channel::new(channel.degrade());
+        channel.runtime_ensure_compatible(&i2s);
+
+        let i2s = i2s.degrade();
+
+        let peripheral = i2s.peripheral();
+        let rx_guard = PeripheralGuard::new(peripheral);
+        let tx_guard = PeripheralGuard::new(peripheral);
+
+        i2s.set_master();
+        i2s.configure_pcm_to_pdm_tx(&config)?;
         i2s.update();
 
         Ok(Self {
@@ -1360,6 +1507,24 @@ mod private {
 
             self
         }
+
+        #[cfg(not(i2s_version = "1"))]
+        pub fn with_dout2(self, dout2: impl PeripheralOutput<'d>) -> Self {
+            // I2S1 does not have a second data output signal for PDM TX.
+            #[cfg(soc_has_i2s1)]
+            if matches!(self.i2s.0, AnyI2sInner::I2s1(_)) {
+                panic!("I2S1 does not support PDM TX two-line DAC mode");
+            }
+
+            let dout2 = dout2.into();
+
+            dout2.apply_output_config(&OutputConfig::default());
+            dout2.set_output_enable(true);
+
+            self.i2s.dout2_signal().connect_to(&dout2);
+
+            self
+        }
     }
 
     pub struct RxCreator<'d, Dm>
@@ -1435,6 +1600,8 @@ mod private {
         fn bclk_signal(&self) -> OutputSignal;
         fn ws_signal(&self) -> OutputSignal;
         fn dout_signal(&self) -> OutputSignal;
+        #[cfg(not(i2s_version = "1"))]
+        fn dout2_signal(&self) -> OutputSignal;
         fn bclk_rx_signal(&self) -> OutputSignal;
         fn ws_rx_signal(&self) -> OutputSignal;
         fn din_signal(&self) -> InputSignal;
@@ -2231,6 +2398,17 @@ mod private {
             }
         }
 
+        #[cfg(not(i2s_version = "1"))]
+        fn dout2_signal(&self) -> OutputSignal {
+            cfg_if::cfg_if! {
+                if #[cfg(esp32s3)] {
+                    OutputSignal::I2S0O_SD1
+                } else {
+                    OutputSignal::I2SO_SD1
+                }
+            }
+        }
+
         fn bclk_rx_signal(&self) -> OutputSignal {
             cfg_if::cfg_if! {
                 if #[cfg(any(i2s_version = "1", esp32s3))] {
@@ -2305,6 +2483,11 @@ mod private {
             }
         }
 
+        #[cfg(not(i2s_version = "1"))]
+        fn dout2_signal(&self) -> OutputSignal {
+            unreachable!("I2S1 does not support PDM TX two-line DAC mode")
+        }
+
         fn bclk_rx_signal(&self) -> OutputSignal {
             OutputSignal::I2S1I_BCK
         }
@@ -2365,6 +2548,228 @@ mod private {
             self.disable_peri_interrupt_on_all_cores();
             self.bind_peri_interrupt(handler);
         }
+
+        pub(super) fn configure_pcm_to_pdm_tx(
+            &self,
+            config: &PcmToPdmTxConfig,
+        ) -> Result<(), ConfigError> {
+            // Validate PDM configuration before touching any registers.
+            if config.up_sample_fs == 0
+                || config.up_sample_fs > 480
+                || config.up_sample_fp > 1023
+                || config.up_sample_fp < config.up_sample_fs
+                || config.bclk_div.map_or(false, |d| !(8..=64).contains(&d))
+                || config.data_format.data_bits() != 16
+            {
+                return Err(ConfigError::InvalidPcmToPdmConfig);
+            }
+
+            // PDM TX registers only exist on I2S0.
+            let regs = match &self.0 {
+                #[cfg(soc_has_i2s0)]
+                AnyI2sInner::I2s0(_) => unsafe {
+                    // SAFETY: `I2S0::PTR` is a valid static peripheral pointer.
+                    &*crate::peripherals::I2S0::PTR.cast::<crate::pac::i2s0::RegisterBlock>()
+                },
+                #[cfg(soc_has_i2s1)]
+                AnyI2sInner::I2s1(_) => return Err(ConfigError::PcmToPdmTxNotSupported),
+            };
+
+            let bclk_div = match config.bclk_div {
+                None => find_optimal_bclk_div(
+                    config.sample_rate,
+                    config.up_sample_fp,
+                    config.up_sample_fs,
+                    8,
+                ),
+                Some(div) => div,
+            };
+
+            let over_sample_ratio = config.up_sample_fp / config.up_sample_fs;
+            if over_sample_ratio == 0 || over_sample_ratio > 15 {
+                return Err(ConfigError::InvalidPcmToPdmConfig);
+            }
+
+            let bclk = config
+                .sample_rate
+                .as_hz()
+                .checked_mul(64)
+                .and_then(|bclk| bclk.checked_mul(over_sample_ratio))
+                .ok_or(ConfigError::InvalidPcmToPdmConfig)?;
+            let mclk = bclk
+                .checked_mul(bclk_div)
+                .ok_or(ConfigError::InvalidPcmToPdmConfig)?;
+            let sclk = crate::soc::i2s_sclk_frequency();
+
+            // Match ESP-IDF's PDM TX clock validity checks before writing registers.
+            if (sclk as u64) * 100 <= (mclk as u64) * 199 {
+                return Err(ConfigError::InvalidPcmToPdmConfig);
+            }
+
+            let clock_settings = I2sClockDividers::new_pcm_to_pdm_tx(
+                config.sample_rate,
+                config.up_sample_fp,
+                config.up_sample_fs,
+                bclk_div,
+            );
+
+            if clock_settings.mclk_divider == 0 || clock_settings.mclk_divider >= 256 {
+                return Err(ConfigError::InvalidPcmToPdmConfig);
+            }
+
+            // ---- Configure TX clock ----
+            #[cfg(not(i2s_clock_configured_by_pcr))]
+            unsafe {
+                let div = clock_settings.mclk_dividers();
+
+                // Double-division workaround: switch to a safe temporary divider first.
+                regs.tx_clkm_conf()
+                    .modify(|_, w| w.tx_clkm_div_num().bits(2));
+                regs.tx_clkm_div_conf().modify(|_, w| {
+                    w.tx_clkm_div_x().bits(0);
+                    w.tx_clkm_div_y().bits(1);
+                    w.tx_clkm_div_yn1().bit(false);
+                    w.tx_clkm_div_z().bits(0)
+                });
+
+                // Apply the target divider.
+                regs.tx_clkm_div_conf().modify(|_, w| {
+                    w.tx_clkm_div_x().bits(div.x as u16);
+                    w.tx_clkm_div_y().bits(div.y as u16);
+                    w.tx_clkm_div_yn1().bit(div.yn1);
+                    w.tx_clkm_div_z().bits(div.z as u16)
+                });
+                regs.tx_clkm_conf().modify(|_, w| {
+                    w.clk_en().set_bit();
+                    w.tx_clk_active().set_bit();
+                    w.tx_clk_sel().bits(property!("i2s.default_clock_source"));
+                    w.tx_clkm_div_num().bits(clock_settings.mclk_divider as u8)
+                });
+                regs.tx_conf1().modify(|_, w| {
+                    w.tx_bck_div_num()
+                        .bits((clock_settings.bclk_divider - 1) as u8)
+                });
+
+                // Optional noise-reduction workaround: overwrite with fixed coefficients.
+                if config.pdm_tx_noise_reduction {
+                    regs.tx_clkm_conf()
+                        .modify(|_, w| w.tx_clkm_div_num().bits(2));
+                    regs.tx_clkm_div_conf().modify(|_, w| {
+                        w.tx_clkm_div_x().bits(0);
+                        w.tx_clkm_div_y().bits(1);
+                        w.tx_clkm_div_yn1().bit(false);
+                        w.tx_clkm_div_z().bits(0)
+                    });
+                    regs.tx_clkm_div_conf().modify(|_, w| {
+                        w.tx_clkm_div_x().bits(1);
+                        w.tx_clkm_div_y().bits(1);
+                        w.tx_clkm_div_yn1().bit(false);
+                        w.tx_clkm_div_z().bits(0)
+                    });
+                    regs.tx_clkm_conf()
+                        .modify(|_, w| w.tx_clkm_div_num().bits(clock_settings.mclk_divider as u8));
+                }
+            }
+
+            #[cfg(i2s_clock_configured_by_pcr)]
+            unsafe {
+                use crate::peripherals::PCR;
+                let div = clock_settings.mclk_dividers();
+
+                PCR::regs().i2s_tx_clkm_div_conf().modify(|_, w| {
+                    w.i2s_tx_clkm_div_x().bits(div.x as u16);
+                    w.i2s_tx_clkm_div_y().bits(div.y as u16);
+                    w.i2s_tx_clkm_div_yn1().bit(div.yn1);
+                    w.i2s_tx_clkm_div_z().bits(div.z as u16)
+                });
+                PCR::regs().i2s_tx_clkm_conf().modify(|_, w| {
+                    w.i2s_tx_clkm_en().set_bit();
+                    w.i2s_tx_clkm_sel()
+                        .bits(property!("i2s.default_clock_source"));
+                    w.i2s_tx_clkm_div_num()
+                        .bits(clock_settings.mclk_divider as u8)
+                });
+
+                #[cfg(esp32c6)]
+                regs.tx_conf1().modify(|_, w| {
+                    w.tx_bck_div_num()
+                        .bits((clock_settings.bclk_divider - 1) as u8)
+                });
+                #[cfg(not(esp32c6))]
+                regs.tx_conf().modify(|_, w| {
+                    w.tx_bck_div_num()
+                        .bits((clock_settings.bclk_divider - 1) as u8)
+                });
+            }
+
+            // ---- Configure PDM filter ----
+            unsafe {
+                regs.tx_pcm2pdm_conf1().modify(|_, w| {
+                    w.tx_pdm_fp().bits(config.up_sample_fp as u16);
+                    w.tx_pdm_fs().bits(config.up_sample_fs as u16)
+                });
+                regs.tx_pcm2pdm_conf()
+                    .modify(|_, w| w.tx_pdm_sinc_osr2().bits(over_sample_ratio as u8));
+            }
+
+            // ---- Configure line mode and slot width ----
+            let dac_mode_en = config.line_mode != PcmToPdmTxLineMode::OneLineCodec;
+            let dac_2out_en = config.line_mode != PcmToPdmTxLineMode::OneLineDac;
+            let is_mono = config.slot_mode != Channels::STEREO;
+            let slot_bit_width = if config.slot_mode == Channels::STEREO {
+                32
+            } else {
+                16
+            };
+            const PDM_TX_HALF_SAMPLE_BITS: u8 = 15;
+
+            unsafe {
+                regs.tx_pcm2pdm_conf().modify(|_, w| {
+                    w.tx_pdm_dac_mode_en().bit(dac_mode_en);
+                    w.tx_pdm_dac_2out_en().bit(dac_2out_en)
+                });
+
+                regs.tx_conf1().modify(|_, w| {
+                    w.tx_bits_mod().bits(slot_bit_width - 1);
+                    w.tx_tdm_chan_bits().bits(slot_bit_width - 1);
+                    w.tx_half_sample_bits().bits(PDM_TX_HALF_SAMPLE_BITS)
+                });
+
+                // Bind MCLK to TX clock, disable loopback, enable PDM TX.
+                #[cfg(not(i2s_clock_configured_by_pcr))]
+                regs.rx_clkm_conf().modify(|_, w| w.mclk_sel().clear_bit());
+                #[cfg(i2s_clock_configured_by_pcr)]
+                {
+                    use crate::peripherals::PCR;
+                    PCR::regs()
+                        .i2s_rx_clkm_conf()
+                        .modify(|_, w| w.i2s_mclk_sel().clear_bit());
+                }
+                regs.tx_conf().modify(|_, w| {
+                    w.tx_mono().bit(is_mono);
+                    w.tx_mono_fst_vld().set_bit();
+                    w.sig_loopback().clear_bit();
+                    w.tx_pdm_en().set_bit();
+                    w.tx_tdm_en().clear_bit();
+                    w.tx_ws_idle_pol().clear_bit();
+                    #[cfg(i2s_version = "3")]
+                    w.tx_msb_shift().clear_bit();
+                    w.tx_chan_mod().bits(if is_mono { 3 } else { 0 })
+                });
+                #[cfg(i2s_version = "2")]
+                regs.tx_conf1().modify(|_, w| w.tx_msb_shift().clear_bit());
+                regs.tx_pcm2pdm_conf()
+                    .modify(|_, w| w.pcm2pdm_conv_en().set_bit());
+
+                // Disable RX paths to avoid interference.
+                regs.rx_conf().modify(|_, w| {
+                    w.rx_tdm_en().clear_bit();
+                    w.rx_pdm_en().clear_bit()
+                });
+            }
+
+            Ok(())
+        }
     }
 
     impl Signals for super::AnyI2s<'_> {
@@ -2380,6 +2785,8 @@ mod private {
                 fn bclk_signal(&self) -> OutputSignal;
                 fn ws_signal(&self) -> OutputSignal;
                 fn dout_signal(&self) -> OutputSignal;
+                #[cfg(not(i2s_version = "1"))]
+                fn dout2_signal(&self) -> OutputSignal;
                 fn bclk_rx_signal(&self) -> OutputSignal;
                 fn ws_rx_signal(&self) -> OutputSignal;
                 fn din_signal(&self) -> InputSignal;
@@ -2466,6 +2873,71 @@ mod private {
             }
         }
 
+        /// Calculate clock dividers for PDM TX mode.
+        ///
+        /// `sample_rate`: PCM sample rate
+        /// `up_sample_fp`, `up_sample_fs`: up-sampling factors (Fpdm = 64 * Fpcm * fp / fs)
+        /// `bclk_div`: BCLK divider (must be at least 8)
+        #[cfg(not(i2s_version = "1"))]
+        pub fn new_pcm_to_pdm_tx(
+            sample_rate: Rate,
+            up_sample_fp: u32,
+            up_sample_fs: u32,
+            bclk_div: u32,
+        ) -> I2sClockDividers {
+            let sclk = crate::soc::i2s_sclk_frequency();
+            let rate = sample_rate.as_hz();
+            let over_sample_ratio = up_sample_fp / up_sample_fs;
+            let bclk = rate * 64 * over_sample_ratio;
+            let mclk = bclk * bclk_div;
+            let mut mclk_divider = sclk / mclk;
+
+            let mut denominator: u32 = 2;
+            let mut numerator: u32 = 0;
+
+            let freq_diff = sclk.abs_diff(mclk * mclk_divider);
+
+            if freq_diff != 0 {
+                // Carry if decimal >= 1.0 - 2.0 / (max_fract - 1)
+                let max_fract = I2S_LL_MCLK_DIVIDER_MAX as u32;
+                let threshold = mclk - mclk / (max_fract - 1) * 2;
+                if freq_diff >= threshold {
+                    mclk_divider += 1;
+                } else {
+                    let mut min: u32 = !0;
+
+                    for a in 2..=max_fract {
+                        let b =
+                            ((a as u64) * (freq_diff as u64) + (mclk as u64) / 2) / (mclk as u64);
+                        let b = b as u32;
+                        let ma = (freq_diff as u64) * (a as u64);
+                        let mb = (mclk as u64) * (b as u64);
+                        let sub = if mb > ma {
+                            (mb - ma) as u32
+                        } else {
+                            (ma - mb) as u32
+                        };
+
+                        if sub < min {
+                            denominator = a;
+                            numerator = b;
+                            min = sub;
+                            if min == 0 {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            I2sClockDividers {
+                mclk_divider,
+                bclk_divider: bclk_div,
+                denominator,
+                numerator,
+            }
+        }
+
         #[cfg(not(i2s_version = "1"))]
         fn mclk_dividers(&self) -> I2sMclkDividers {
             let x;
@@ -2477,7 +2949,7 @@ mod private {
                 x = 0;
                 y = 0;
                 z = 0;
-                yn1 = true;
+                yn1 = false;
             } else if self.numerator > self.denominator / 2 {
                 x = self
                     .denominator
@@ -2497,6 +2969,41 @@ mod private {
 
             I2sMclkDividers { x, y, z, yn1 }
         }
+    }
+
+    /// Find the optimal bclk_div that minimizes the clock error when the
+    /// fractional part is ignored (e.g. due to the PDM TX noise reduction
+    /// workaround).  It searches [start, start + 56] and returns the bclk_div
+    /// that makes `sclk % mclk` smallest.
+    #[cfg(not(i2s_version = "1"))]
+    fn find_optimal_bclk_div(
+        sample_rate: Rate,
+        up_sample_fp: u32,
+        up_sample_fs: u32,
+        start_bclk_div: u32,
+    ) -> u32 {
+        let sclk = crate::soc::i2s_sclk_frequency();
+        let rate = sample_rate.as_hz();
+        let over_sample_ratio = up_sample_fp / up_sample_fs;
+        let bclk = rate * 64 * over_sample_ratio;
+
+        let mut best_bclk_div = start_bclk_div;
+        let mut min_rem = u32::MAX;
+
+        for bclk_div in start_bclk_div..=start_bclk_div + 56 {
+            let mclk = bclk * bclk_div;
+            let mclk_divider = sclk / mclk;
+            let rem = sclk.abs_diff(mclk * mclk_divider);
+            if rem < min_rem {
+                min_rem = rem;
+                best_bclk_div = bclk_div;
+                if rem == 0 {
+                    break; // perfect match
+                }
+            }
+        }
+
+        best_bclk_div
     }
 }
 
