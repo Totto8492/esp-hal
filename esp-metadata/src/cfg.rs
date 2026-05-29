@@ -1,4 +1,5 @@
 pub(crate) mod aes;
+pub(crate) mod dma;
 pub(crate) mod ecc;
 pub(crate) mod gpio;
 pub(crate) mod i2c_master;
@@ -13,6 +14,7 @@ pub(crate) mod timergroup;
 pub(crate) mod uart;
 
 pub(crate) use aes::*;
+pub(crate) use dma::*;
 pub(crate) use ecc::*;
 pub(crate) use gpio::*;
 pub(crate) use i2c_master::*;
@@ -136,6 +138,7 @@ macro_rules! driver_configs {
         }
     ) => {
         #[derive(Debug, Clone, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
         pub(crate) struct $struct {
             #[serde(default)]
             #[serde(deserialize_with = "crate::support_status::string_or_struct")]
@@ -328,6 +331,8 @@ driver_configs![
         driver: dedicated_gpio,
         name: "Dedicated GPIO",
         properties: {
+            /// Low-level access generation derived from CPU instruction/CSR support.
+            version: String,
             #[serde(default)]
             needs_initialization: bool,
             #[serde(flatten)]
@@ -351,6 +356,8 @@ driver_configs![
             max_priority: Option<u32>,
             #[serde(default)]
             gdma_version: Option<u32>,
+            #[serde(default)]
+            engines: DmaEngines,
         }
     },
     DsProperties {
@@ -397,6 +404,8 @@ driver_configs![
         name: "GPIO",
         has_computed_properties: true,
         properties: {
+            /// Digital GPIO register-layout generation derived from the chip SVD.
+            version: u32,
             #[serde(default)]
             has_bank_1: bool,
             gpio_function: u32,
@@ -499,7 +508,11 @@ driver_configs![
     LedcProperties {
         driver: ledc,
         name: "LEDC",
-        properties: {}
+        properties: {
+            /// Register-layout generation derived from the chip SVD.
+            version: u32,
+            channel_count: u32,
+        }
     },
     LpI2cMasterProperties {
         driver: lp_i2c_master,
@@ -631,6 +644,11 @@ driver_configs![
             #[serde(default)]
             algo: ShaAlgoMap,
         }
+    },
+    SdmProperties {
+        driver: sdm,
+        name: "SDM",
+        properties: {}
     },
     SleepProperties {
         driver: sleep,
