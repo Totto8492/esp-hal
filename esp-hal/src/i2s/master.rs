@@ -1,7 +1,7 @@
 #![cfg_attr(docsrs, procmacros::doc_replace(
     "dma_channel" => {
-        cfg(dma_kind = "pdma") => "DMA_I2S0",
-        cfg(dma_kind = "gdma") => "DMA_CH0"
+        cfg(i2s_dma_engine = "I2S_DMA")  => "DMA_I2S0",
+        _ => "DMA_CH0",
     },
     "mclk" => {
         cfg(not(esp32)) => "let i2s = i2s.with_mclk(peripherals.GPIO0);",
@@ -150,11 +150,12 @@ use core::mem::ManuallyDrop;
 use enumset::{EnumSet, EnumSetType, enum_set};
 use private::*;
 
+#[cfg(i2s_version = "1")]
+use crate::RegisterToggle;
 use crate::{
     Async,
     Blocking,
     DriverMode,
-    RegisterToggle,
     dma::{
         Channel,
         ChannelRx,
@@ -1908,6 +1909,8 @@ mod private {
                 w.tx_short_sync().bit(config.ws_width == WsWidth::Bit)
             });
 
+            self.regs().conf1().modify(|_, w| w.tx_stop_en().set_bit());
+
             #[cfg(not(esp32))]
             self.regs().conf().modify(|_, w| {
                 // Channel configurations other than Stereo should use same data from DMA
@@ -1996,15 +1999,24 @@ mod private {
         }
 
         fn reset_tx(&self) {
-            self.regs().conf().toggle(|w, bit| {
-                w.tx_reset().bit(bit);
-                w.tx_fifo_reset().bit(bit)
+            self.regs().conf().modify(|_, w| w.tx_reset().bit(true));
+            self.regs()
+                .conf()
+                .modify(|_, w| w.tx_fifo_reset().bit(true));
+
+            self.regs().conf().modify(|_, w| {
+                w.tx_reset().bit(false);
+                w.tx_fifo_reset().bit(false)
             });
 
             #[cfg(esp32s2)]
             while self.regs().conf().read().tx_reset_st().bit_is_set() {}
 
-            self.regs().lc_conf().toggle(|w, bit| w.out_rst().bit(bit));
+            #[cfg(esp32)]
+            while self.regs().state().read().tx_fifo_reset_back().bit_is_set() {}
+
+            self.regs().lc_conf().modify(|_, w| w.out_rst().bit(true));
+            self.regs().lc_conf().modify(|_, w| w.out_rst().bit(false));
 
             self.regs().int_clr().write(|w| {
                 w.out_done().clear_bit_by_one();
@@ -2014,6 +2026,10 @@ mod private {
 
         fn tx_start(&self) {
             self.regs().conf().modify(|_, w| w.tx_start().set_bit());
+
+            while self.regs().state().read().tx_idle().bit_is_set() {
+                // wait
+            }
         }
 
         fn tx_stop(&self) {
@@ -2433,18 +2449,21 @@ mod private {
         }
 
         fn update(&self) {
-            self.regs()
-                .tx_conf()
-                .toggle(|w, bit| w.tx_update().bit(!bit));
-            self.regs()
-                .rx_conf()
-                .toggle(|w, bit| w.rx_update().bit(!bit));
+            self.regs().tx_conf().modify(|_, w| w.tx_update().bit(true));
+
+            self.regs().rx_conf().modify(|_, w| w.rx_update().bit(true));
+
+            while self.regs().tx_conf().read().tx_update().bit_is_set()
+                || self.regs().rx_conf().read().rx_update().bit_is_set()
+            {
+                // wait
+            }
         }
 
         fn reset_tx(&self) {
-            self.regs().tx_conf().toggle(|w, bit| {
-                w.tx_reset().bit(bit);
-                w.tx_fifo_reset().bit(bit)
+            self.regs().tx_conf().modify(|_, w| {
+                w.tx_reset().set_bit();
+                w.tx_fifo_reset().set_bit()
             });
 
             self.regs().int_clr().write(|w| {
@@ -2482,9 +2501,9 @@ mod private {
                 .rx_conf()
                 .modify(|_, w| w.rx_start().clear_bit());
 
-            self.regs().rx_conf().toggle(|w, bit| {
-                w.rx_reset().bit(bit);
-                w.rx_fifo_reset().bit(bit)
+            self.regs().rx_conf().modify(|_, w| {
+                w.rx_reset().set_bit();
+                w.rx_fifo_reset().set_bit()
             });
 
             self.regs().int_clr().write(|w| {

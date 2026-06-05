@@ -1,15 +1,13 @@
 //! Allocator and PSRAM-related tests
 
-// TODO: clean configurations up once esp-storage is enabled for the P4
+// TODO: clean configurations up once esp-storage is enabled for the P4 (https://github.com/esp-rs/esp-hal/issues/5648)
 
-//% CHIPS:
-//% CHIPS(llff, tlsf): esp32p4
-//% CHIPS(llff_with_storage): esp32 esp32s2 esp32c5 esp32c61 esp32s3
-//% CHIPS(tlsf_with_storage): esp32 esp32s2 esp32c5 esp32c61 esp32s3
-//% ENV(llff): ESP_ALLOC_CONFIG_HEAP_ALGORITHM=LLFF
-//% ENV(tlsf): ESP_ALLOC_CONFIG_HEAP_ALGORITHM=TLSF
+//% CHIP_FILTER(llff, tlsf): psram_driver_supported && esp32p4
+//% CHIP_FILTER(llff_with_storage, tlsf_with_storage): psram_driver_supported && !esp32p4
+//% ENV(llff, llff_with_storage): ESP_ALLOC_CONFIG_HEAP_ALGORITHM=LLFF
+//% ENV(tlsf, tlsf_with_storage): ESP_ALLOC_CONFIG_HEAP_ALGORITHM=TLSF
 //% FEATURES: unstable esp-alloc/nightly
-//% FEATURES(llff_with_storage): esp-storage
+//% FEATURES(llff_with_storage, tlsf_with_storage): esp-storage
 
 #![no_std]
 #![no_main]
@@ -24,10 +22,12 @@ mod tests {
 
     use allocator_api2::vec::Vec;
     use esp_alloc::{AnyMemory, ExternalMemory, InternalMemory};
+    use esp_hal::clock::CpuClock;
 
     #[init]
     fn init() {
-        let p = esp_hal::init(esp_hal::Config::default());
+        let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+        let p = esp_hal::init(config);
         esp_alloc::psram_allocator!(p.PSRAM, esp_hal::psram);
     }
 
