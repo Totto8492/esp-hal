@@ -118,7 +118,7 @@
 //!
 //! let i2s = I2s::new_pcm_to_pdm_tx(
 //!     peripherals.I2S0,
-//!     peripherals.DMA_CH0,
+//!     peripherals.DMA_CH0.into(),
 //!     PcmToPdmTxConfig::default()
 //!         .with_sample_rate(Rate::from_hz(48000))
 //!         .with_data_format(DataFormat::Data16Channel16)
@@ -1298,13 +1298,12 @@ impl<'d> I2s<'d, Blocking> {
     #[instability::unstable]
     pub fn new_pcm_to_pdm_tx(
         i2s: impl Instance + 'd,
-        channel: impl DmaChannelFor<AnyI2s<'d>>,
+        channel: I2sMasterErased<'d>,
         config: PcmToPdmTxConfig,
     ) -> Result<Self, ConfigError> {
-        let channel = Channel::new(channel.degrade());
-        channel.runtime_ensure_compatible(&i2s);
-
+        let channel = Channel::new(channel);
         let i2s = i2s.degrade();
+        channel.runtime_ensure_compatible(i2s.dma_peripheral());
 
         let peripheral = i2s.peripheral();
         let rx_guard = PeripheralGuard::new(peripheral);

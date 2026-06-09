@@ -62,7 +62,7 @@ fn main() -> ! {
 
     let i2s = I2s::new_pcm_to_pdm_tx(
         peripherals.I2S0,
-        peripherals.DMA_CH0,
+        peripherals.DMA_CH0.into(),
         PcmToPdmTxConfig::default(),
     )
     .unwrap();
