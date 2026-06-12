@@ -351,8 +351,6 @@ driver_configs![
             #[serde(default)]
             separate_in_out_interrupts: bool,
             #[serde(default)]
-            max_priority: Option<u32>,
-            #[serde(default)]
             gdma_version: Option<u32>,
             #[serde(default)]
             engines: DmaEngines,
@@ -533,6 +531,11 @@ driver_configs![
         name: "MCPWM",
         properties: {}
     },
+    MipiDsiProperties {
+        driver: mipi_dsi,
+        name: "MIPI-DSI",
+        properties: {}
+    },
     ParlIoProperties {
         driver: parl_io,
         name: "PARL_IO",
@@ -669,8 +672,6 @@ driver_configs![
             multi_core_enabled: bool,
             #[serde(default)]
             cpu_csr_prv_mode: Option<u32>,
-            #[serde(default)]
-            rc_fast_clk_default: Option<u32>,
             #[serde(default)]
             internal_memory_cached: bool,
             #[serde(flatten)]

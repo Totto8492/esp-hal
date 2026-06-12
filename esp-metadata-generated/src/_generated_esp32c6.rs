@@ -91,12 +91,6 @@ macro_rules! property {
     ("dma.separate_in_out_interrupts") => {
         true
     };
-    ("dma.max_priority") => {
-        9
-    };
-    ("dma.max_priority", str) => {
-        stringify!(9)
-    };
     ("dma.gdma_version") => {
         1
     };
@@ -338,7 +332,7 @@ macro_rules! property {
         true
     };
     ("rng.is_lp_sys") => {
-        false
+        true
     };
     ("rsa.version") => {
         3
@@ -378,12 +372,6 @@ macro_rules! property {
     };
     ("soc.cpu_csr_prv_mode", str) => {
         stringify!(3088)
-    };
-    ("soc.rc_fast_clk_default") => {
-        17500000
-    };
-    ("soc.rc_fast_clk_default", str) => {
-        stringify!(17500000)
     };
     ("soc.internal_memory_cached") => {
         false
@@ -555,7 +543,7 @@ macro_rules! for_each_dma_channel {
         interrupt_out = DMA_OUT_CH1, compatible = [SPI2, UHCI0, I2S0, AES, SHA,
         APB_SARADC, PARL_IO]), ("AHB_GDMA", DMA_CH2, 2, interrupt_in = DMA_IN_CH2,
         interrupt_out = DMA_OUT_CH2, compatible = [SPI2, UHCI0, I2S0, AES, SHA,
-        APB_SARADC, PARL_IO])));
+        APB_SARADC, PARL_IO]))); _for_each_inner_dma_channel!((no_own_interrupt));
     };
 }
 #[macro_export]
@@ -2084,9 +2072,9 @@ macro_rules! define_clock_tree_types {
         #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash)]
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         pub enum SpiFunctionClockConfig {
-            #[default]
             /// Selects `PLL_F80M`.
             PllF80m,
+            #[default]
             /// Selects `XTAL_CLK`.
             Xtal,
             /// Selects `RC_FAST_CLK`.
@@ -5335,7 +5323,7 @@ macro_rules! for_each_peripheral {
         = "PMU peripheral singleton"] PMU <= PMU() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc = "RMT peripheral singleton"] RMT
         <= RMT() (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
-        "RNG peripheral singleton"] RNG <= RNG() (unstable)));
+        "RNG peripheral singleton"] RNG <= LP_PERI() (unstable)));
         _for_each_inner_peripheral!((@ peri_type #[doc = "RSA peripheral singleton"] RSA
         <= RSA(RSA : { bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt
         }) (unstable))); _for_each_inner_peripheral!((@ peri_type #[doc =
@@ -5689,7 +5677,7 @@ macro_rules! for_each_peripheral {
         (unstable)), (@ peri_type #[doc = "PLIC_MX peripheral singleton"] PLIC_MX <=
         PLIC_MX() (unstable)), (@ peri_type #[doc = "PMU peripheral singleton"] PMU <=
         PMU() (unstable)), (@ peri_type #[doc = "RMT peripheral singleton"] RMT <= RMT()
-        (unstable)), (@ peri_type #[doc = "RNG peripheral singleton"] RNG <= RNG()
+        (unstable)), (@ peri_type #[doc = "RNG peripheral singleton"] RNG <= LP_PERI()
         (unstable)), (@ peri_type #[doc = "RSA peripheral singleton"] RSA <= RSA(RSA : {
         bind_peri_interrupt, enable_peri_interrupt, disable_peri_interrupt })
         (unstable)), (@ peri_type #[doc = "SHA peripheral singleton"] SHA <= SHA(SHA : {

@@ -148,6 +148,14 @@ impl RtcClock {
     #[cfg(soc_has_clock_node_timg_calibration_clock)]
     pub(crate) fn calibrate(cal_clk: TimgCalibrationClockConfig, slowclk_cycles: u32) -> u32 {
         ClockTree::with(|clocks| {
+            #[cfg(not(esp32c2))]
+            if cal_clk == TimgCalibrationClockConfig::Xtal32kClk {
+                debug!("Assuming Xtal32k has precisely 32.768kHz instead of calibrating");
+                let freq_hz: u64 = 32_768;
+                let period_64 = (1_000_000u64 << RtcClock::CAL_FRACT) / freq_hz;
+                return period_64 as u32;
+            }
+
             let xtal_freq = Rate::from_hz(clocks::xtal_clk_frequency());
 
             let (xtal_cycles, _) = RtcClock::measure_rtc_clock(
@@ -205,6 +213,10 @@ pub(crate) fn init(cpu_clock_config: ClockConfig) {
         clocks::request_pll_clk(clocks);
         #[cfg(soc_has_clock_node_pll_f96m_clk)]
         clocks::request_pll_f96m_clk(clocks);
+        #[cfg(soc_has_clock_node_pll_f120m)]
+        clocks::request_pll_f120m(clocks);
+        #[cfg(soc_has_clock_node_pll_f160m)]
+        clocks::request_pll_f160m(clocks);
         #[cfg(soc_has_clock_node_pll_f240m)]
         clocks::request_pll_f240m(clocks);
         #[cfg(soc_has_clock_node_rc_fast_div_clk)]

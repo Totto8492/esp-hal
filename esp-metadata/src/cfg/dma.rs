@@ -55,6 +55,8 @@ pub struct DmaPeripheralInstance {
 pub struct DmaEngineDef {
     /// The name of the engine (e.g. `"AHB_GDMA"`, `"SPI_DMA"`, `"I2S_DMA"`).
     pub name: String,
+    #[serde(default)]
+    pub max_priority: Option<u32>,
     /// Driver config names whose peripherals can use this engine
     /// (e.g. `"aes"`, `"sha"`, `"spi_master"`, `"spi_slave"`, `"rmt"`).
     #[serde(default)]
@@ -107,6 +109,10 @@ impl DmaEngines {
         }
         Ok(())
     }
+
+    fn max_priority(&self) -> Option<u32> {
+        self.0.iter().flat_map(|e| e.max_priority).max()
+    }
 }
 
 impl GenericProperty for DmaEngines {
@@ -138,12 +144,21 @@ impl GenericProperty for DmaEngines {
             }
         }
 
+        // TODO: temporary
+        if let Some(max_priority) = self.max_priority() {
+            cfgs.push(format!("dma.max_priority=\"{}\"", max_priority));
+            cfgs.push("dma.max_priority_is_set".to_string());
+        }
+
         Some(cfgs)
     }
 
     fn macros(&self) -> Option<proc_macro2::TokenStream> {
+        // DMA channel information split into three lists based on interrupt signals
+        let mut no_own_interrupt = vec![];
         let mut shared = vec![];
         let mut split = vec![];
+
         let mut engines = vec![];
         let mut engine_channels = vec![];
         let mut engine_any_channels = vec![];
@@ -250,7 +265,9 @@ impl GenericProperty for DmaEngines {
                         );
                     }
                     (None, None, None) => {
-                        // No interrupt info – skip
+                        no_own_interrupt.push(
+                            quote! { #engine_name, #ch, #idx, compatible = [#(#compatible_peris),*] },
+                        );
                     }
                     _ => {
                         panic!(
@@ -271,6 +288,7 @@ impl GenericProperty for DmaEngines {
                     ("separate_any_type", &engine_any_channels),
                     ("shared", &shared),
                     ("split", &split),
+                    ("no_own_interrupt", &no_own_interrupt),
                 ],
             ))
         } else {
