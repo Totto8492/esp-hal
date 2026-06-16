@@ -15,6 +15,8 @@ use enumset::EnumSet;
 use procmacros::ram;
 
 use super::*;
+#[cfg(all(spi_master_version = "1", spi_address_workaround))]
+use crate::dma::InternalMemoryBuffer;
 use crate::{
     RegisterToggle,
     dma::{
@@ -26,6 +28,7 @@ use crate::{
         DmaRxBuffer,
         DmaTxBuf,
         DmaTxBuffer,
+        InternalMemoryCachelineAligned,
         NoBuffer,
         ScopedDmaRxBuf,
         ScopedDmaTxBuf,
@@ -256,36 +259,25 @@ impl<'d> SpiDma<'d, Blocking> {
         let channel = Channel::new(channel);
         channel.runtime_ensure_compatible(spi.spi.dma_peripheral());
 
-        for_each_spi_master!((all $($inst:tt),*) => {
-            const SPI_NUM: usize = 0 $(+ { stringify!($inst); 1 })*;
-        };);
-        let id = if spi.info() == unsafe { crate::peripherals::SPI2::steal().info() } {
-            0
-        } else {
-            1
-        };
-
         let state = spi.spi.dma_state();
 
         state.tx_transfer_in_progress.set(false);
         state.rx_transfer_in_progress.set(false);
 
-        static mut TX_DESCRIPTORS: [[DmaDescriptor; 1]; SPI_NUM] =
-            [[DmaDescriptor::EMPTY]; SPI_NUM];
-        static mut RX_DESCRIPTORS: [[DmaDescriptor; 1]; SPI_NUM] =
-            [[DmaDescriptor::EMPTY]; SPI_NUM];
+        let descriptors = unsafe { (&mut *state.descriptors.get()).get_mut() };
+        descriptors.fill(DmaDescriptor::EMPTY);
 
-        let rx_buffer = unwrap!(DmaRxBuf::new(unsafe { &mut RX_DESCRIPTORS[id] }, &mut []));
+        let (tx_descriptors, rx_descriptors) = descriptors.split_at_mut(1);
 
-        cfg_if::cfg_if! {
-            if #[cfg(all(spi_master_version = "1", spi_address_workaround))] {
-                static mut BUFFERS: [[u32; 1]; SPI_NUM] = [[0]; SPI_NUM];
-                let buffer = crate::dma::as_mut_byte_array!(BUFFERS[id], 4);
-                let tx_buffer = unwrap!(DmaTxBuf::new(unsafe { &mut TX_DESCRIPTORS[id] }, buffer));
-            } else {
-                let tx_buffer = unwrap!(DmaTxBuf::new(unsafe { &mut TX_DESCRIPTORS[id] }, &mut []));
-            }
-        }
+        let tx_buffer = cfg_select! {
+            all(spi_master_version = "1", spi_address_workaround) => unsafe {
+                (&mut *state.default_tx_buffer.get()).get_mut()
+            },
+            _ => &mut []
+        };
+
+        let rx_buffer = unwrap!(DmaRxBuf::new(rx_descriptors, &mut []));
+        let tx_buffer = unwrap!(DmaTxBuf::new(tx_descriptors, tx_buffer));
 
         // The buffers must be set up when creating the driver.
         unsafe { (&mut *state.tx_buffer.get()).write(tx_buffer.into_scoped()) };
@@ -685,6 +677,7 @@ impl<'a> MaybeCopyTxBuf<'a> {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum MaybeCopyRxBuf<'a> {
     Copy(&'a mut ScopedDmaRxBuf<'static>),
     Direct {
@@ -1796,6 +1789,11 @@ struct DmaState {
 
     rx_buffer: UnsafeCell<MaybeUninit<ScopedDmaRxBuf<'static>>>,
     tx_buffer: UnsafeCell<MaybeUninit<ScopedDmaTxBuf<'static>>>,
+
+    descriptors: UnsafeCell<InternalMemoryCachelineAligned<[DmaDescriptor; 2]>>,
+
+    #[cfg(all(spi_master_version = "1", spi_address_workaround))]
+    default_tx_buffer: UnsafeCell<InternalMemoryBuffer<4>>,
 }
 
 impl DmaState {
@@ -1844,6 +1842,10 @@ for_each_spi_master!(
 
                                 rx_buffer: UnsafeCell::new(MaybeUninit::uninit()),
                                 tx_buffer: UnsafeCell::new(MaybeUninit::uninit()),
+
+                                descriptors: UnsafeCell::new(InternalMemoryCachelineAligned::new([DmaDescriptor::EMPTY; 2])),
+                                #[cfg(all(spi_master_version = "1", spi_address_workaround))]
+                                default_tx_buffer: UnsafeCell::new(InternalMemoryBuffer::new()),
                             };
 
                             &DMA_STATE

@@ -153,6 +153,7 @@ separate_in_out_interrupts = true
 engines = [
     {
         name = "AHB_GDMA",
+        internal_ram_burst_sizes = [0, 4],
         max_priority = 5,
         drivers = ["aes", "sha", "spi_master", "spi_slave", "uhci", "i2s", "parl_io"],
         peripheral_instances = [
@@ -489,7 +490,10 @@ support_status = "partial"
 fifo_size = 16
 
 [device.i2c_slave]
-support_status = { status = "not_supported", issue = 1909 }
+support_status = "supported"
+instances = [
+    { name = "i2c0" },
+]
 
 [device.interrupts]
 support_status = "partial"
